@@ -50,9 +50,25 @@ router.post("/register", (req, red) => {
   });
 });
 
-// TODO: Create auth/login route
-router.get("/login", (_req, res) =>
-  res.json({ status: "ok", app: "Login route exists" }),
-);
+
+router.post('/login', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'E-mail e senha são obrigatórios' })
+  }
+
+  const db = getDb();
+  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+
+  const token = jwt.sign(
+    { id: user.id, username: user.username },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  )
+
+  const { password_hash, ...safeUser } = user;
+  res.json({ token, user: safeUser });
+
+})
 
 module.exports = router;
