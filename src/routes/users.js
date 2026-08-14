@@ -17,7 +17,7 @@ router.get('/', authOptional, (req, res) => {
 
 router.get('/:username', authOptional, (req, res) => {
   const db = getDb();
-  const user = db.prepare(`
+  const users = db.prepare(`
     SELECT
       u.id, u.username, u.display_name, u.bio,
       u.favorite_genre, u.favorite_artist, u.created_at,
@@ -30,12 +30,34 @@ router.get('/:username', authOptional, (req, res) => {
     LEFT JOIN follows f1 ON f1.following_id = u.id
     LEFT JOIN follows f2 ON f2.follower_id  = u.id
     ${req.user ? 'LEFT JOIN follows f3 ON f3.following_id = u.id AND f3.follower_id = ?' : ''}
-    WHERE u.username = ? AND u.is_deleted = 0 
+    WHERE u.username LIKE ? AND u.is_deleted = 0 
     GROUP BY u.id
-  `).get(...(req.user ? [req.user.id, req.user.id] : []), req.params.username);
+  `).all(...(req.user ? [req.user.id, req.user.id] : []), `%${req.params.username}%`);
 
-  if (!user) return res.status(404).json({ error: 'Usuário não encontrado' })
-  res.json({ user });
+  if (!users) return res.status(404).json({ error: 'Usuário não encontrado' })
+  res.json({ users });
+});
+
+router.patch('/me', authRequired, (req, res) => {
+  const { display_name, bio, favorite_genre, favorite_artist } = req.body;
+  const db = getDb();
+
+  db.prepare(`
+    UPDATE users
+    SET
+      display_name    = COALESCE(?, display_name),
+      bio             = COALESCE(?, bio),
+      favorite_genre  = COALESCE(?, favorite_genre),
+      favorite_artist = COALESCE(?, favorite_artist)
+    WHERE id = ?
+  `).run(display_name || null, bio || null, favorite_genre || null, favorite_artist || null, req.user.id);
+
+  const updated = db.prepare(`
+    SELECT id, username, display_name, email, bio, favorite_genre, favorite_artist, created_at
+    FROM users WHERE id = ?
+  `).get(req.user.id);
+
+  res.json({ user: updated });
 });
 
 

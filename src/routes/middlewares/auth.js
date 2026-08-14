@@ -3,7 +3,9 @@ const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 
 function authRequired(req, res, next) {
+    // TODO: Fix token auth
     const header = req.headers.authorization;
+    
     if (!header || !header.startsWith('Bearer ')) {
         return res.status(401).json({ error: 'Token não fornecido' });
     }
