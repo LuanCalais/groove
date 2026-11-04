@@ -93,14 +93,13 @@ router.get('/feed', authRequired, (req, res) => {
   res.status(200).json({ posts, limit, offset });
 });
 
-
 router.post('/', authRequired, (req, res) => {
   const { content, post_type = 'opinion', music_ref, music_ref_type, tags } = req.body;
   console.log(req.body)
   if (!content || content.trim().length === 0) {
     return res.status(400).json({ error: 'Conteúdo é obrigatório' });
   }
-  
+
   if (content.length > 500) {
     return res.status(400).json({ error: 'Post pode ter no máximo 500 caracteres' });
   }
@@ -124,11 +123,11 @@ router.post('/', authRequired, (req, res) => {
     const postId = result.lastInsertRowid;
 
     if (Array.isArray(tags) && tags.length > 0) {
-      for (const name of tags.slice(0, 5)) { 
+      for (const name of tags.slice(0, 5)) {
         const tag = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').run(name.toLowerCase());
         const tagId = tag.lastInsertRowid
           || db.prepare('SELECT id FROM tags WHERE name = ?').get(name.toLowerCase()).id;
-        db.prepare('INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)').run(postId, tagId);  
+        db.prepare('INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)').run(postId, tagId);
       }
     }
 
@@ -136,7 +135,7 @@ router.post('/', authRequired, (req, res) => {
   });
 
   const postId = insertPost();
-  
+
   const post = db.prepare(`
     SELECT p.*, u.username, u.display_name
     FROM posts p JOIN users u ON u.id = p.user_id
@@ -144,6 +143,64 @@ router.post('/', authRequired, (req, res) => {
   `).get(postId);
 
   res.status(201).json({ post });
-})
+});
+
+router.delete('/:id', authRequired, (req, res) => {
+  const db = getDb();
+  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
+
+  if (!post) return res.status(404).json({ error: 'Post não encontrado' });
+  if (post.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'Sem permissão para deletar este post' });
+  }
+
+  db.prepare('DELETE FROM posts WHERE id = ?').run(req.params.id);
+  res.json({ message: 'Post deletado' });
+});
+
+router.post('/:id/like', authRequired, (req, res) => {
+  const db = getDb();
+  const post = db.prepare('SELECT id FROM posts WHERE id = ?').get(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post não encontrado' });
+  
+  const existing = db
+    .prepare('SELECT id FROM likes WHERE user_id = ? AND post_id = ?')
+    .get(req.user.id, req.params.id);
+
+  if (existing) {
+    db.prepare('DELETE FROM likes WHERE user_id = ? AND post_id = ?').run(req.user.id, req.params.id);
+    return res.json({ liked: false });
+  }
+
+  db.prepare('INSERT INTO likes (user_id, post_id) VALUES (?, ?)').run(req.user.id, req.params.id);
+  res.json({ liked: true });
+});
+
+router.post('/:id/comments', authRequired, (req, res) => {
+  const { content } = req.body;
+  if (!content || content.trim().length === 0) {
+    return res.status(400).json({ error: 'Comentário não pode ser vazio' });
+  }
+
+  if (content.length > 300) {
+    return res.status(400).json({ error: 'Comentário pode ter no máximo 300 caracteres' });
+  }
+  const db = getDb();
+  const post = db.prepare('SELECT id FROM posts WHERE id = ?').get(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post não encontrado' });
+
+  const result = db.prepare(`
+    INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)
+  `).run(req.params.id, req.user.id, content.trim());
+
+  const comment = db.prepare(`
+    SELECT c.*, u.username, u.display_name
+    FROM comments c JOIN users u ON u.id = c.user_id
+    WHERE c.id = ?
+  `).get(result.lastInsertRowid);
+
+  res.status(201).json({ comment });
+});
+
 
 module.exports = router;
