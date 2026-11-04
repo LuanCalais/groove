@@ -42,6 +42,12 @@ router.patch('/me', authRequired, (req, res) => {
   const { display_name, bio, favorite_genre, favorite_artist } = req.body;
   const db = getDb();
 
+  const exists = db.prepare(`SELECT email, username FROM users WHERE id = ? AND is_deleted = 0 LIMIT 1`).get(req.user.id);
+  if (!exists) {
+    res.status(404).json({ error: "Usuário não encontrado" });
+    return;
+  }  
+
   db.prepare(`
     UPDATE users
     SET
@@ -49,7 +55,7 @@ router.patch('/me', authRequired, (req, res) => {
       bio             = COALESCE(?, bio),
       favorite_genre  = COALESCE(?, favorite_genre),
       favorite_artist = COALESCE(?, favorite_artist)
-    WHERE id = ?
+    WHERE id = ? AND is_deleted = 0
   `).run(display_name || null, bio || null, favorite_genre || null, favorite_artist || null, req.user.id);
 
   const updated = db.prepare(`
@@ -58,6 +64,41 @@ router.patch('/me', authRequired, (req, res) => {
   `).get(req.user.id);
 
   res.json({ user: updated });
+});
+
+router.delete("/:id", authRequired, (req, res) => {
+  const { id } = req.params;
+  if (!id) {
+    res.status(400).json({ error: "Id do usuário é obrigatório" });
+  }
+  const db = getDb();
+  const user = db.prepare(`SELECT email, username FROM users WHERE id = ? AND is_deleted = 0 LIMIT 1`).get(id);
+
+  if (!user) {
+    res.status(404).json({ error: "Usuário não encontrado" });
+    return;
+  }
+
+  if (req.user.id !== parseInt(req.params.id)) {
+    return res.status(403).json({ error: 'Sem permissão para deletar este usuário' });
+  }
+
+  const timestamp = Date.now();
+
+  db.prepare(`
+    UPDATE users 
+    SET is_deleted = 1,
+        email = ?,
+        username = ?
+     WHERE id = ?      
+  `).run(
+    `_DELETED_${timestamp}_${user.email}`,
+    `_DELETED_${timestamp}_${user.username}`,
+    id
+  );
+
+  res.json({ message: 'Usuário deletado com sucesso' });
+
 });
 
 

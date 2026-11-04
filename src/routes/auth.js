@@ -50,43 +50,6 @@ router.post("/register", (req, res) => {
   });
 });
 
-router.delete("/:id", (req, res) => {
-  const { id } = req.params;
-  if (!id) {
-    res.status(400).json({ error: "Id do usuário é obrigatório" });
-  }
-  console.log("Aqui");
-  const db = getDb();
-  const user = db.prepare(`SELECT email, username FROM users WHERE id = ? AND is_deleted = 0 LIMIT 1`).get(id);
-
-  if (!user) {
-    res.status(404).json({ error: "Usuário não encontrado" });
-  }
-
-  /* TODO: Descomentar assim que tiver validação do middlewares
-    if (req.user.id !== parseInt(req.params.id)) {
-      return res.status(403).json({ error: 'Sem permissão para deletar este usuário' });
-    }
-  */
-
-  const timestamp = Date.now();
-
-  db.prepare(`
-    UPDATE users 
-    SET is_deleted = 1,
-        email = ?,
-        username = ?
-     WHERE id = ?      
-  `).run(
-    `_DELETED_${timestamp}_${user.email}`,
-    `_DELETED_${timestamp}_${user.username}`,
-    id
-  );
-
-  res.json({ message: 'Usuário deletado com sucesso' });
-
-});
-
 router.post('/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
