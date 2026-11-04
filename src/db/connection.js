@@ -1,5 +1,4 @@
 const Database = require('better-sqlite3');
-const { config } = require('dotenv');
 
 const DB_PATH = process.env.DB_PATH || './groove.db';
 

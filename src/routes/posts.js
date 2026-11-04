@@ -4,12 +4,12 @@ const { authRequired, authOptional } = require('../routes/middlewares/auth');
 const { POST_TYPES, MUSIC_REF_TYPES } = require('../utils/index');
 
 router.get('/', authOptional, (req, res) => {
-    const db = getDb();
-    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
-    const offset = parseInt(req.query.offset) || 0;
-    const type = req.query.type;
+  const db = getDb();
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+  const offset = parseInt(req.query.offset) || 0;
+  const type = req.query.type;
 
-    let query = `
+  let query = `
         SELECT
           p.*,
           u.username,
@@ -28,26 +28,26 @@ router.get('/', authOptional, (req, res) => {
         LIMIT ? OFFSET ?
     `
 
-    const params = []
-    if (req.user) params.push(req.user.id, req.user.id);
-    if (type && POST_TYPES.includes(type)) params.push(type);
-    params.push(limit, offset);
+  const params = []
+  if (req.user) params.push(req.user.id, req.user.id);
+  if (type && POST_TYPES.includes(type)) params.push(type);
+  params.push(limit, offset);
 
-    const posts = db.prepare(query).all(...params);
-    res.json({ posts, limit, offset });
+  const posts = db.prepare(query).all(...params);
+  res.json({ posts, limit, offset });
 });
 
 router.get('/feed', authRequired, (req, res) => {
-    const db = getDb();
-    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
-    const offset = parseInt(req.query.offset) || 0;
-    
-    if (!req?.user?.id) {
-        res.status(400).json({ Error: "User ID is required" });
-        return 
-    }
+  const db = getDb();
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+  const offset = parseInt(req.query.offset) || 0;
 
-    const posts = db.prepare(`
+  if (!req?.user?.id) {
+    res.status(400).json({ Error: "User ID is required" });
+    return
+  }
+
+  const posts = db.prepare(`
           SELECT
             p.*,
             u.username,
@@ -68,5 +68,58 @@ router.get('/feed', authRequired, (req, res) => {
 
   res.status(200).json({ posts, limit, offset });
 });
+
+
+router.post('/', authRequired, (req, res) => {
+  const { content, post_type = 'opinion', music_ref, music_ref_type, tags } = req.body;
+  console.log(req.body)
+  if (!content || content.trim().length === 0) {
+    return res.status(400).json({ error: 'Conteúdo é obrigatório' });
+  }
+  
+  if (content.length > 500) {
+    return res.status(400).json({ error: 'Post pode ter no máximo 500 caracteres' });
+  }
+
+  if (!POST_TYPES.includes(post_type)) {
+    return res.status(400).json({ error: `Tipo de postagem inválido. Use: ${POST_TYPES.join(', ')}` });
+  }
+
+  if (music_ref_type && !MUSIC_REF_TYPES.includes(music_ref_type)) {
+    return res.status(400).json({ error: `music_ref_type inválido. Use: ${MUSIC_REF_TYPES.join(', ')}` });
+  }
+
+  const db = getDb();
+
+  const insertPost = db.transaction(() => {
+    const result = db.prepare(`
+      INSERT INTO posts (user_id, content, post_type, music_ref, music_ref_type)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(req.user.id, content.trim(), post_type, music_ref || null, music_ref_type || null);
+
+    const postId = result.lastInsertRowid;
+
+    if (Array.isArray(tags) && tags.length > 0) {
+      for (const name of tags.slice(0, 5)) { 
+        const tag = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').run(name.toLowerCase());
+        const tagId = tag.lastInsertRowid
+          || db.prepare('SELECT id FROM tags WHERE name = ?').get(name.toLowerCase()).id;
+        db.prepare('INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)').run(postId, tagId);  
+      }
+    }
+
+    return postId;
+  });
+
+  const postId = insertPost();
+  
+  const post = db.prepare(`
+    SELECT p.*, u.username, u.display_name
+    FROM posts p JOIN users u ON u.id = p.user_id
+    WHERE p.id = ?
+  `).get(postId);
+
+  res.status(201).json({ post });
+})
 
 module.exports = router;
