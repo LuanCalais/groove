@@ -10,30 +10,54 @@ router.get('/', authOptional, (req, res) => {
   const type = req.query.type;
 
   let query = `
-        SELECT
-          p.*,
-          u.username,
-          u.display_name,
-          COUNT(DISTINCT l.id)  AS likes_count,
-          COUNT(DISTINCT c.id)  AS comments_count
-          ${req.user ? ', MAX(CASE WHEN l2.user_id = ? THEN 1 ELSE 0 END) AS liked_by_me' : ''}
-        FROM posts p
-        JOIN users u ON u.id = p.user_id
-        LEFT JOIN likes l ON l.post_id = p.id
-        LEFT JOIN comments c ON c.post_id = p.id
-        ${req.user ? 'LEFT JOIN likes l2 ON l2.post_id = p.id AND l2.user_id = ?' : ''}
-        ${type && POST_TYPES.includes(type) ? 'WHERE p.post_type = ?' : ''}
-        GROUP BY p.id
-        ORDER BY p.created_at DESC
-        LIMIT ? OFFSET ?
-    `
+    SELECT
+      p.*,
+      u.username,
+      u.display_name,
+      COUNT(DISTINCT l.id) AS likes_count,
+      COUNT(DISTINCT c.id) AS comments_count
+      ${req.user ? ', MAX(CASE WHEN l2.user_id = ? THEN 1 ELSE 0 END) AS liked_by_me' : ''}
+    FROM posts p
+    JOIN users u ON u.id = p.user_id
+    LEFT JOIN likes l    ON l.post_id = p.id
+    LEFT JOIN comments c ON c.post_id = p.id
+    ${req.user ? 'LEFT JOIN likes l2 ON l2.post_id = p.id AND l2.user_id = ?' : ''}
+    ${type && POST_TYPES.includes(type) ? 'WHERE p.post_type = ?' : ''}
+    GROUP BY p.id
+    ORDER BY p.created_at DESC
+    LIMIT ? OFFSET ?
+  `;
 
-  const params = []
+  const params = [];
   if (req.user) params.push(req.user.id, req.user.id);
   if (type && POST_TYPES.includes(type)) params.push(type);
   params.push(limit, offset);
 
   const posts = db.prepare(query).all(...params);
+
+  if (posts.length > 0) {
+    const ids = posts.map(p => p.id);
+    const placeholders = ids.map(() => '?').join(',');
+
+    const tagRows = db.prepare(`
+      SELECT pt.post_id, t.name
+      FROM post_tags pt
+      JOIN tags t ON t.id = pt.tag_id
+      WHERE pt.post_id IN (${placeholders})
+      ORDER BY t.name
+    `).all(...ids);
+
+    const tagsByPost = new Map();
+    for (const row of tagRows) {
+      if (!tagsByPost.has(row.post_id)) tagsByPost.set(row.post_id, []);
+      tagsByPost.get(row.post_id).push(row.name);
+    }
+
+    for (const post of posts) {
+      post.tags = tagsByPost.get(post.id) || [];
+    }
+  }
+
   res.json({ posts, limit, offset });
 });
 
