@@ -95,7 +95,6 @@ router.get('/feed', authRequired, (req, res) => {
 
 router.post('/', authRequired, (req, res) => {
   const { content, post_type = 'opinion', music_ref, music_ref_type, tags } = req.body;
-  console.log(req.body)
   if (!content || content.trim().length === 0) {
     return res.status(400).json({ error: 'Conteúdo é obrigatório' });
   }
@@ -124,9 +123,18 @@ router.post('/', authRequired, (req, res) => {
 
     if (Array.isArray(tags) && tags.length > 0) {
       for (const name of tags.slice(0, 5)) {
-        const tag = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').run(name.toLowerCase());
-        const tagId = tag.lastInsertRowid
-          || db.prepare('SELECT id FROM tags WHERE name = ?').get(name.toLowerCase()).id;
+        const normalized = name.toLowerCase();
+
+        let tag = db.prepare('SELECT id FROM tags WHERE name = ?').get(normalized);
+        let tagId;
+
+        if (tag) {
+          tagId = tag.id;
+        } else {
+          const inserted = db.prepare('INSERT INTO tags (name) VALUES (?)').run(normalized);
+          tagId = inserted.lastInsertRowid;
+        }
+
         db.prepare('INSERT OR IGNORE INTO post_tags (post_id, tag_id) VALUES (?, ?)').run(postId, tagId);
       }
     }
